@@ -104,6 +104,18 @@
   .pill.now{background:var(--accent);border-color:var(--accent);color:#fff}
   .pill.done{color:var(--ok);border-color:var(--ok)}
 
+  /* ---------- access codes ---------- */
+  .section-title{grid-column:1/-1;margin:.5rem 0 0;padding-top:1rem;border-top:1px solid var(--border);
+                 font-size:1rem;color:var(--accent)}
+  .codes{display:flex;gap:1.25rem;margin-top:1.25rem}
+  .code{flex:1;background:var(--panel);border:1px solid var(--border);border-top:6px solid var(--c);
+        border-radius:6px;padding:.9rem 1.25rem}
+  .code span{display:block;font-size:.85rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+  .code b{display:block;font-family:Consolas,"Courier New",monospace;font-weight:700;
+          font-size:clamp(2rem,4.5vw,4rem);letter-spacing:.06em;color:var(--c);word-break:break-all;margin:.15rem 0}
+  .code small{color:var(--muted);font-size:.9rem}
+  .code.c1{--c:var(--p1)} .code.c2{--c:var(--p2)}
+
   [hidden]{display:none!important}
   @media (max-width:900px){ .grid{grid-template-columns:1fr} .form{grid-template-columns:1fr} }
   /* Hide the toolbar in fullscreen for a clean projector view (S still opens setup) */
@@ -168,6 +180,34 @@
         <label for="fCrit">Red warning at (min left in part)</label>
         <input id="fCrit" type="number" min="0" step="1">
       </div>
+
+      <h3 class="section-title">Access codes (passwords)</h3>
+      <div>
+        <label for="fPw1">Part 1 password</label>
+        <div class="row">
+          <input id="fPw1" type="password" autocomplete="off" placeholder="leave blank to not show">
+          <button class="btn pwToggle" type="button" data-for="fPw1">Show</button>
+        </div>
+      </div>
+      <div>
+        <label for="fPw2">Part 2 password</label>
+        <div class="row">
+          <input id="fPw2" type="password" autocomplete="off" placeholder="leave blank to not show">
+          <button class="btn pwToggle" type="button" data-for="fPw2">Show</button>
+        </div>
+      </div>
+      <div>
+        <label for="fPw1Before">Show Part 1 password (min before exam start)</label>
+        <input id="fPw1Before" type="number" min="0" step="1">
+      </div>
+      <div>
+        <label for="fPw1Hide">Hide Part 1 password (min after Part 1 ends)</label>
+        <input id="fPw1Hide" type="number" min="0" step="1">
+      </div>
+      <div>
+        <label for="fPw2After">Show Part 2 password (min after exam start)</label>
+        <input id="fPw2After" type="number" min="0" step="1">
+      </div>
     </div>
 
     <div class="preview">
@@ -223,6 +263,11 @@
     <thead><tr><th>Section</th><th>Length</th><th>Starts</th><th>Ends</th><th>Status</th></tr></thead>
     <tbody id="schedBody"></tbody>
   </table>
+
+  <div class="codes" id="codes" hidden>
+    <div class="code c1" id="code1" hidden><span id="code1lbl"></span><b id="code1val"></b><small id="code1note"></small></div>
+    <div class="code c2" id="code2" hidden><span id="code2lbl"></span><b id="code2val"></b><small id="code2note"></small></div>
+  </div>
 </main>
 
 <script>
@@ -245,6 +290,11 @@
     p2Name: "Part 2",
     warn: 10,
     crit: 5,
+    pw1: "",
+    pw2: "",
+    pw1Before: 2,   // Part 1 code appears 2 min before the start
+    pw2After: 12,   // Part 2 code appears 12 min into Part 1
+    pw1Hide: 10,    // Part 1 code disappears 10 min after Part 1 ends
     theme: "light"
   };
 
@@ -283,13 +333,30 @@
     if (!(c.total > 0)) return "Total length must be greater than 0.";
     if (!(c.p1 > 0) || c.p1 >= c.total) return "Part 1 must be shorter than the total exam length.";
     if (c.crit > c.warn) return "The red warning should be at or below the orange warning.";
+    if ([c.pw1Before, c.pw2After, c.pw1Hide].some(v => !(v >= 0))) return "Password timing values must be 0 or more.";
     return "";
   }
 
   // ---------- setup form ----------
   const fields = { title:"fTitle", date:"fDate", start:"fStart", total:"fTotal", p1:"fP1",
-                   p1Name:"fP1Name", p2Name:"fP2Name", warn:"fWarn", crit:"fCrit" };
-  const numeric = new Set(["total","p1","warn","crit"]);
+                   p1Name:"fP1Name", p2Name:"fP2Name", warn:"fWarn", crit:"fCrit",
+                   pw1:"fPw1", pw2:"fPw2", pw1Before:"fPw1Before", pw2After:"fPw2After", pw1Hide:"fPw1Hide" };
+  const numeric = new Set(["total","p1","warn","crit","pw1Before","pw2After","pw1Hide"]);
+
+  // When each access code is on screen (ms timestamps)
+  function codeWindows(c, s){
+    const m = 60000;
+    return {
+      show1: s.start.getTime() - c.pw1Before*m,
+      hide1: s.p1End.getTime() + c.pw1Hide*m,
+      show2: s.start.getTime() + c.pw2After*m,
+      hide2: s.end.getTime()                     // Part 2 code stays until the exam ends
+    };
+  }
+  document.querySelectorAll(".pwToggle").forEach(b => b.onclick = () => {
+    const inp = $(b.dataset.for), hidden = inp.type === "password";
+    inp.type = hidden ? "text" : "password"; b.textContent = hidden ? "Hide" : "Show";
+  });
 
   function fillForm(){ for (const k in fields) $(fields[k]).value = cfg[k]; $("theme").value = cfg.theme; updatePreview(); }
   function readForm(){
@@ -306,6 +373,9 @@
       <tr><td><span class="swatch" style="background:var(--p1)"></span>${esc(c.p1Name)}</td><td>${c.p1} min</td><td>${clock(s.start)}</td><td>${clock(s.p1End)}</td></tr>
       <tr><td><span class="swatch" style="background:var(--p2)"></span>${esc(c.p2Name)}</td><td>${s.p2} min</td><td>${clock(s.p1End)}</td><td>${clock(s.end)}</td></tr>
       <tr><td><b>Total</b></td><td><b>${c.total} min</b></td><td>${clock(s.start)}</td><td>${clock(s.end)}</td></tr>`;
+    const w = codeWindows(c, s), T = ms => clock(new Date(ms));
+    const pwRow = (name, pw, a, b) => `<tr><td>🔑 ${esc(name)} password</td><td>${pw ? "set" : "<i>not set</i>"}</td><td>shown ${T(a)}</td><td>hidden ${T(b)}</td></tr>`;
+    $("previewBody").innerHTML += pwRow(c.p1Name, c.pw1, w.show1, w.hide1) + pwRow(c.p2Name, c.pw2, w.show2, w.hide2);
   }
   const esc = t => String(t).replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
 
@@ -400,6 +470,22 @@
     $("schedBody").innerHTML = `
       <tr class="${current===1?'now':''}"><td><span class="swatch" style="background:var(--p1)"></span>${esc(cfg.p1Name)}</td><td>${cfg.p1} min</td><td>${clock(s.start)}</td><td>${clock(s.p1End)}</td><td>${status(1)}</td></tr>
       <tr class="${current===2?'now':''}"><td><span class="swatch" style="background:var(--p2)"></span>${esc(cfg.p2Name)}</td><td>${s.p2} min</td><td>${clock(s.p1End)}</td><td>${clock(s.end)}</td><td>${status(2)}</td></tr>`;
+
+    // access codes at the bottom
+    const w = codeWindows(cfg, s);
+    const on1 = !!cfg.pw1 && t >= w.show1 && t < w.hide1;
+    const on2 = !!cfg.pw2 && t >= w.show2 && t < w.hide2;
+    $("code1").hidden = !on1; $("code2").hidden = !on2; $("codes").hidden = !(on1 || on2);
+    if (on1){
+      $("code1lbl").textContent = `${cfg.p1Name} access code`;
+      $("code1val").textContent = cfg.pw1;
+      $("code1note").textContent = `removed at ${clock(new Date(w.hide1))}`;
+    }
+    if (on2){
+      $("code2lbl").textContent = `${cfg.p2Name} access code`;
+      $("code2val").textContent = cfg.pw2;
+      $("code2note").textContent = t < s.p1End ? `use after you finish ${cfg.p1Name}` : `shown until ${clock(s.end)}`;
+    }
   }
 
   // ---------- extras ----------

@@ -116,6 +116,26 @@
   .code small{color:var(--muted);font-size:.9rem}
   .code.c1{--c:var(--p1)} .code.c2{--c:var(--p2)}
 
+  /* ---------- pre-exam information ---------- */
+  .info{display:grid;grid-template-columns:1.6fr 1fr;gap:1.25rem;margin-top:1.25rem}
+  .info>div{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:1rem 1.25rem}
+  .info h2{margin:0 0 .6rem;font-size:clamp(1.1rem,1.8vw,1.6rem);color:var(--accent);
+           padding-bottom:.4rem;border-bottom:2px solid var(--warn)}
+  table.fmt{width:100%;border-collapse:collapse;font-size:clamp(.9rem,1.25vw,1.15rem);line-height:1.35}
+  .fmt th{background:var(--accent);color:#fff;text-align:left;padding:.45rem .6rem}
+  .fmt td{border:1px solid var(--border);padding:.45rem .6rem;vertical-align:top}
+  .fmt td.pc1{border-left:5px solid var(--p1)}
+  .fmt td.pc2{border-left:5px solid var(--p2)}
+  .fmt td:last-child,.fmt th:last-child{white-space:nowrap}
+  .fmt tr.r2{background:color-mix(in srgb,var(--p2) 6%,transparent)}
+  .fmt tr.tot{background:var(--chrome)}
+  .grading{margin:0;padding-left:1.2rem;font-size:clamp(.95rem,1.35vw,1.25rem);line-height:1.45}
+  .grading li{margin-bottom:.45rem}
+  /* while the info is up, make the countdown smaller so everything fits on one screen */
+  #run.waiting .big{font-size:clamp(3.5rem,8vw,7rem)}
+  #run.waiting .stat b{font-size:clamp(1.3rem,2.2vw,2rem)}
+  @media (max-width:900px){ .info{grid-template-columns:1fr} }
+
   [hidden]{display:none!important}
   @media (max-width:900px){ .grid{grid-template-columns:1fr} .form{grid-template-columns:1fr} }
   /* Hide the toolbar in fullscreen for a clean projector view (S still opens setup) */
@@ -208,6 +228,12 @@
         <label for="fPw2After">Show Part 2 password (min after exam start)</label>
         <input id="fPw2After" type="number" min="0" step="1">
       </div>
+
+      <h3 class="section-title">Waiting screen</h3>
+      <div>
+        <label for="fInfoHide">Hide exam format info (min before start)</label>
+        <input id="fInfoHide" type="number" min="0" step="1">
+      </div>
     </div>
 
     <div class="preview">
@@ -246,6 +272,37 @@
     </aside>
   </div>
 
+  <!-- Shown only while waiting; hidden a few minutes before the start -->
+  <section class="info" id="info" hidden>
+    <div>
+      <h2>Exam format</h2>
+      <table class="fmt">
+        <thead><tr><th>Part</th><th>Questions</th><th>What you will do</th><th>Points</th></tr></thead>
+        <tbody>
+          <tr class="r1"><td rowspan="3" class="pc1"><b>Part 1</b><br>Canvas quiz</td><td>Q1 – Q3</td>
+              <td><b>Program reasoning:</b> read a code snippet and predict its exact output.</td><td>15 (5 each)</td></tr>
+          <tr class="r1"><td>Q4</td><td><b>Pseudocode to code:</b> translate a given algorithm into MATLAB.</td><td rowspan="2">25 (total)</td></tr>
+          <tr class="r1"><td>Q5</td><td><b>Debugging:</b> find and fix the errors in a given program.</td></tr>
+          <tr class="r2"><td class="pc2"><b>Part 2</b><br>MATLAB Grader + Canvas</td><td>Q6 – Q9</td>
+              <td><b>Programming:</b> write a complete MATLAB program for each problem. Test in MATLAB Grader, then
+                  <b>paste your final code into the Canvas answer box</b>. Only the code submitted on Canvas is graded.</td><td>60 (30 each)</td></tr>
+          <tr class="tot"><td colspan="3"><b>Total</b></td><td><b>100</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h2>How the exam is graded</h2>
+      <ul class="grading">
+        <li><b>Q1 – Q3:</b> all or nothing; no partial credit.</li>
+        <li><b>Q4 – Q5:</b> points for each correct part of the solution.</li>
+        <li><b>Q6 – Q9:</b> partial credit based on the logic of your program, even if it does not run perfectly.</li>
+        <li>A problem can often be solved in more than one way. If your logic is correct, you receive full credit.</li>
+        <li><b>Correct logic is the key to full points.</b></li>
+      </ul>
+    </div>
+  </section>
+
+  <div id="details">
   <div class="timeline">
     <div class="tl" id="tl">
       <div class="seg s1" id="seg1"><div class="fill"></div><div class="lbl" id="seg1lbl"></div></div>
@@ -263,6 +320,7 @@
     <thead><tr><th>Section</th><th>Length</th><th>Starts</th><th>Ends</th><th>Status</th></tr></thead>
     <tbody id="schedBody"></tbody>
   </table>
+  </div>
 
   <div class="codes" id="codes" hidden>
     <div class="code c1" id="code1" hidden><span id="code1lbl"></span><b id="code1val"></b><small id="code1note"></small></div>
@@ -295,6 +353,7 @@
     pw1Before: 2,   // Part 1 code appears 2 min before the start
     pw2After: 12,   // Part 2 code appears 12 min into Part 1
     pw1Hide: 10,    // Part 1 code disappears 10 min after Part 1 ends
+    infoHide: 3,    // exam-format info disappears 3 min before the start
     theme: "light"
   };
 
@@ -333,15 +392,15 @@
     if (!(c.total > 0)) return "Total length must be greater than 0.";
     if (!(c.p1 > 0) || c.p1 >= c.total) return "Part 1 must be shorter than the total exam length.";
     if (c.crit > c.warn) return "The red warning should be at or below the orange warning.";
-    if ([c.pw1Before, c.pw2After, c.pw1Hide].some(v => !(v >= 0))) return "Password timing values must be 0 or more.";
+    if ([c.pw1Before, c.pw2After, c.pw1Hide, c.infoHide].some(v => !(v >= 0))) return "Password timing values must be 0 or more.";
     return "";
   }
 
   // ---------- setup form ----------
   const fields = { title:"fTitle", date:"fDate", start:"fStart", total:"fTotal", p1:"fP1",
                    p1Name:"fP1Name", p2Name:"fP2Name", warn:"fWarn", crit:"fCrit",
-                   pw1:"fPw1", pw2:"fPw2", pw1Before:"fPw1Before", pw2After:"fPw2After", pw1Hide:"fPw1Hide" };
-  const numeric = new Set(["total","p1","warn","crit","pw1Before","pw2After","pw1Hide"]);
+                   pw1:"fPw1", pw2:"fPw2", pw1Before:"fPw1Before", pw2After:"fPw2After", pw1Hide:"fPw1Hide", infoHide:"fInfoHide" };
+  const numeric = new Set(["total","p1","warn","crit","pw1Before","pw2After","pw1Hide","infoHide"]);
 
   // When each access code is on screen (ms timestamps)
   function codeWindows(c, s){
@@ -470,6 +529,12 @@
     $("schedBody").innerHTML = `
       <tr class="${current===1?'now':''}"><td><span class="swatch" style="background:var(--p1)"></span>${esc(cfg.p1Name)}</td><td>${cfg.p1} min</td><td>${clock(s.start)}</td><td>${clock(s.p1End)}</td><td>${status(1)}</td></tr>
       <tr class="${current===2?'now':''}"><td><span class="swatch" style="background:var(--p2)"></span>${esc(cfg.p2Name)}</td><td>${s.p2} min</td><td>${clock(s.p1End)}</td><td>${clock(s.end)}</td><td>${status(2)}</td></tr>`;
+
+    // exam-format info while waiting (hidden infoHide min before the start)
+    const showInfo = t < s.start.getTime() - cfg.infoHide*60000;
+    $("info").hidden = !showInfo;
+    $("details").hidden = showInfo;          // timeline + schedule return when the info goes away
+    $("run").classList.toggle("waiting", showInfo);
 
     // access codes at the bottom
     const w = codeWindows(cfg, s);
